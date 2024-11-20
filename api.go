@@ -4,7 +4,35 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 )
+
+type Chirp struct {
+	Body string `json:"body"`
+}
+
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+type ValidResponse struct {
+	CleanedBody string `json:"cleaned_body"`
+}
+
+func responseJSON(w http.ResponseWriter, status int, data interface{}) {
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	dat, jerr := json.Marshal(data)
+	if jerr != nil {
+		log.Printf("Error marshaling JSON %s", jerr)
+		return
+	}
+
+	w.Write(dat)
+
+}
 
 func APIHealthCheck(w http.ResponseWriter, _ *http.Request) {
 
@@ -16,18 +44,6 @@ func APIHealthCheck(w http.ResponseWriter, _ *http.Request) {
 
 func APIValidateChirp(w http.ResponseWriter, req *http.Request) {
 
-	type Chirp struct {
-		Body string `json:"body"`
-	}
-
-	type ErrorResponse struct {
-		Error string `json:"error"`
-	}
-
-	type ValidResponse struct {
-		Valid bool `json:"valid"`
-	}
-
 	decoder := json.NewDecoder(req.Body)
 	defer req.Body.Close()
 
@@ -37,48 +53,37 @@ func APIValidateChirp(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		errResp := ErrorResponse{"Something went wrong"}
-		dat, jerr := json.Marshal(errResp)
-		if jerr != nil {
-			log.Printf("Error marshaling JSON %s", jerr)
-			return
-		}
-		w.Write(dat)
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Something went wrong"})
 		return
 	}
 
 	if len(chirp.Body) == 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		errResp := ErrorResponse{"Silent chirp"}
-		dat, jerr := json.Marshal(errResp)
-		if jerr != nil {
-			log.Printf("Error marshaling JSON %s", jerr)
-			return
-		}
-		w.Write(dat)
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Silent chirp"})
 		return
 	}
 
 	if len(chirp.Body) > 140 {
-		w.WriteHeader(http.StatusBadRequest)
-		errResp := ErrorResponse{"Chirp is too long"}
-		dat, jerr := json.Marshal(errResp)
-		if jerr != nil {
-			log.Printf("Error marshaling JSON %s", jerr)
-			return
-		}
-		w.Write(dat)
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Chirp is too long"})
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	validResp := ValidResponse{true}
-	dat, jerr := json.Marshal(validResp)
-	if jerr != nil {
-		log.Printf("Error marshaling JSON %s", jerr)
-		return
+	bannedWords := make(map[string]interface{})
+	bannedWords["kerfuffle"] = nil
+	bannedWords["sharbert"] = nil
+	bannedWords["fornax"] = nil
+
+	chirpWords := strings.Split(chirp.Body, " ")
+
+	var checkWord string
+	var ok bool
+
+	for w := 0; w < len(chirpWords); w++ {
+		checkWord = strings.ToLower(chirpWords[w])
+		if _, ok = bannedWords[checkWord]; ok {
+			chirpWords[w] = "****"
+		}
 	}
-	w.Write(dat)
+
+	responseJSON(w, http.StatusOK, ValidResponse{strings.Join(chirpWords, " ")})
 
 }

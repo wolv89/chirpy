@@ -1,2 +1,4 @@
 out
 requests.http
+internal/database
+.env
