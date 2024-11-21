@@ -11,6 +11,7 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
+	platform       string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -33,7 +34,14 @@ func (cfg *apiConfig) handleMetricsView(w http.ResponseWriter, _ *http.Request) 
 
 }
 
-func (cfg *apiConfig) handleMetricsReset(w http.ResponseWriter, _ *http.Request) {
+func (cfg *apiConfig) handleFullReset(w http.ResponseWriter, req *http.Request) {
+
+	if cfg.platform != "dev" {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	cfg.fileserverHits.Store(0)
+	_ = cfg.dbQueries.DeleteUsers(req.Context())
 	fmt.Fprintf(w, "Reset")
 }

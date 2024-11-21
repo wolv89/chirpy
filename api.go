@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strings"
+
+	"github.com/wolv89/chirpy/internal/database"
 )
 
 type Chirp struct {
@@ -34,7 +35,7 @@ func responseJSON(w http.ResponseWriter, status int, data interface{}) {
 
 }
 
-func APIHealthCheck(w http.ResponseWriter, _ *http.Request) {
+func (cfg *apiConfig) APIHealthCheck(w http.ResponseWriter, _ *http.Request) {
 
 	w.Header().Add("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -42,13 +43,13 @@ func APIHealthCheck(w http.ResponseWriter, _ *http.Request) {
 
 }
 
-func APIValidateChirp(w http.ResponseWriter, req *http.Request) {
+func (cfg *apiConfig) APICreateChirp(w http.ResponseWriter, req *http.Request) {
 
 	decoder := json.NewDecoder(req.Body)
 	defer req.Body.Close()
 
-	chirp := Chirp{}
-	err := decoder.Decode(&chirp)
+	newChirp := database.CreateChirpParams{}
+	err := decoder.Decode(&newChirp)
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -57,33 +58,59 @@ func APIValidateChirp(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if len(chirp.Body) == 0 {
+	if len(newChirp.Body) == 0 {
 		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Silent chirp"})
 		return
 	}
 
-	if len(chirp.Body) > 140 {
+	if len(newChirp.Body) > 140 {
 		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Chirp is too long"})
 		return
 	}
 
-	bannedWords := make(map[string]interface{})
-	bannedWords["kerfuffle"] = nil
-	bannedWords["sharbert"] = nil
-	bannedWords["fornax"] = nil
+	newChirp.Body = FilterChirp(newChirp.Body)
 
-	chirpWords := strings.Split(chirp.Body, " ")
+	chirp, err := cfg.dbQueries.CreateChirp(req.Context(), newChirp)
 
-	var checkWord string
-	var ok bool
-
-	for w := 0; w < len(chirpWords); w++ {
-		checkWord = strings.ToLower(chirpWords[w])
-		if _, ok = bannedWords[checkWord]; ok {
-			chirpWords[w] = "****"
-		}
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unable to post chirp"})
+		return
 	}
 
-	responseJSON(w, http.StatusOK, ValidResponse{strings.Join(chirpWords, " ")})
+	responseJSON(w, http.StatusCreated, chirp)
+
+}
+
+func (cfg *apiConfig) APICreateUser(w http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(req.Body)
+	defer req.Body.Close()
+
+	type NewUser struct {
+		Email string `json:"email"`
+	}
+	newUser := NewUser{}
+	err := decoder.Decode(&newUser)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Something went wrong"})
+		return
+	}
+
+	if len(newUser.Email) == 0 {
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"New users must have an email address"})
+		return
+	}
+
+	user, err := cfg.dbQueries.CreateUser(req.Context(), newUser.Email)
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unable to create user"})
+		return
+	}
+
+	responseJSON(w, http.StatusCreated, user)
 
 }

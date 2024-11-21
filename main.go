@@ -30,6 +30,7 @@ func main() {
 	apiCfg := &apiConfig{
 		fileserverHits: atomic.Int32{},
 		dbQueries:      dbQueries,
+		platform:       os.Getenv("PLATFORM"),
 	}
 
 	mux := http.NewServeMux()
@@ -37,10 +38,13 @@ func main() {
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(filepathRoot)))))
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handleMetricsView)
-	mux.HandleFunc("POST /admin/reset", apiCfg.handleMetricsReset)
+	mux.HandleFunc("POST /admin/reset", apiCfg.handleFullReset)
 
-	mux.HandleFunc("GET /api/healthz", APIHealthCheck)
-	mux.HandleFunc("POST /api/validate_chirp", APIValidateChirp)
+	mux.HandleFunc("GET /api/healthz", apiCfg.APIHealthCheck)
+
+	mux.HandleFunc("POST /api/users", apiCfg.APICreateUser)
+
+	mux.HandleFunc("POST /api/chirps", apiCfg.APICreateChirp)
 
 	srv := &http.Server{
 		Handler: mux,
