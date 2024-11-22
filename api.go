@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/wolv89/chirpy/internal/database"
 )
 
@@ -112,5 +113,44 @@ func (cfg *apiConfig) APICreateUser(w http.ResponseWriter, req *http.Request) {
 	}
 
 	responseJSON(w, http.StatusCreated, user)
+
+}
+
+func (cfg *apiConfig) APIGetAllChirps(w http.ResponseWriter, req *http.Request) {
+
+	chirps, err := cfg.dbQueries.GetAllChirps(req.Context())
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{err.Error()})
+		return
+	}
+
+	responseJSON(w, http.StatusOK, chirps)
+
+}
+
+func (cfg *apiConfig) APIGetChirp(w http.ResponseWriter, req *http.Request) {
+
+	qry := req.PathValue("chirpId")
+
+	if len(qry) == 0 {
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Need a chirp ID!"})
+		return
+	}
+
+	uuid, err := uuid.Parse(qry)
+	if err != nil {
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"That doesn't look like a chirp ID!"})
+		return
+	}
+
+	chirp, err := cfg.dbQueries.GetChirp(req.Context(), uuid)
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{err.Error()})
+		return
+	}
+
+	responseJSON(w, http.StatusOK, chirp)
 
 }
