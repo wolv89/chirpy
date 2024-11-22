@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/wolv89/chirpy/internal/auth"
 	"github.com/wolv89/chirpy/internal/database"
 )
 
@@ -21,6 +22,11 @@ type ValidResponse struct {
 	CleanedBody string `json:"cleaned_body"`
 }
 
+type BasicAuth struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 func responseJSON(w http.ResponseWriter, status int, data interface{}) {
 
 	w.Header().Set("Content-Type", "application/json")
@@ -33,6 +39,51 @@ func responseJSON(w http.ResponseWriter, status int, data interface{}) {
 	}
 
 	w.Write(dat)
+
+}
+
+func (cfg *apiConfig) APILogin(w http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(req.Body)
+	defer req.Body.Close()
+
+	userLogin := BasicAuth{}
+	err := decoder.Decode(&userLogin)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Something went wrong"})
+		return
+	}
+
+	if len(userLogin.Email) == 0 || len(userLogin.Password) == 0 {
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Please enter email and password"})
+		return
+	}
+
+	comparePassword, err := cfg.dbQueries.GetUserPasswordFromEmail(req.Context(), userLogin.Email)
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Something went wrong"})
+		return
+	}
+
+	loginError := auth.CheckPasswordHash(userLogin.Password, comparePassword)
+
+	if loginError != nil {
+		responseJSON(w, http.StatusUnauthorized, ErrorResponse{"incorrect email or password"})
+		return
+	}
+
+	user, err := cfg.dbQueries.GetUserFromEmail(req.Context(), userLogin.Email)
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unable to load user"})
+		return
+	}
+
+	responseJSON(w, http.StatusOK, user)
 
 }
 
@@ -87,10 +138,7 @@ func (cfg *apiConfig) APICreateUser(w http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(req.Body)
 	defer req.Body.Close()
 
-	type NewUser struct {
-		Email string `json:"email"`
-	}
-	newUser := NewUser{}
+	newUser := BasicAuth{}
 	err := decoder.Decode(&newUser)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -100,12 +148,24 @@ func (cfg *apiConfig) APICreateUser(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if len(newUser.Email) == 0 {
-		responseJSON(w, http.StatusBadRequest, ErrorResponse{"New users must have an email address"})
+	if len(newUser.Email) == 0 || len(newUser.Password) == 0 {
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"New users must have an email address and password"})
 		return
 	}
 
-	user, err := cfg.dbQueries.CreateUser(req.Context(), newUser.Email)
+	password, err := auth.HashPassword(newUser.Password)
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unusable password"})
+		return
+	}
+
+	newUserParams := database.CreateUserParams{
+		Email:          newUser.Email,
+		HashedPassword: password,
+	}
+
+	user, err := cfg.dbQueries.CreateUser(req.Context(), newUserParams)
 
 	if err != nil {
 		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unable to create user"})
