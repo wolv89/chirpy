@@ -12,6 +12,11 @@ import (
 	"github.com/wolv89/chirpy/internal/database"
 )
 
+const (
+	JWT_EXPIRY_IN_SECONDS  = 3600
+	REFRESH_EXPIRY_IN_DAYS = 60
+)
+
 type Chirp struct {
 	Body string `json:"body"`
 }
@@ -25,17 +30,21 @@ type ValidResponse struct {
 }
 
 type BasicAuth struct {
-	Email            string `json:"email"`
-	Password         string `json:"password"`
-	ExpiresInSeconds int    `json:"expires_in_seconds"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type AuthResponse struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
+}
+
+type JWTResponse struct {
+	Token string `json:"token"`
 }
 
 func responseJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -68,6 +77,27 @@ func (cfg *apiConfig) getUserFromAuth(req *http.Request) (uuid.UUID, error) {
 	}
 
 	return userId, nil
+
+}
+
+func (cfg *apiConfig) getAccessFromRefreshToken(req *http.Request) (string, error) {
+
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		return "", err
+	}
+
+	found, err := cfg.dbQueries.LookupToken(req.Context(), token)
+	if err != nil {
+		return "", err
+	}
+
+	jwt, err := auth.MakeJWT(found.UserID.UUID, cfg.jwtSecret, time.Second*time.Duration(JWT_EXPIRY_IN_SECONDS))
+	if err != nil {
+		return "", err
+	}
+
+	return jwt, nil
 
 }
 
@@ -112,16 +142,23 @@ func (cfg *apiConfig) APILogin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	expiry := userLogin.ExpiresInSeconds
-	if expiry <= 0 || expiry > 3600 {
-		expiry = 3600
-	}
-
-	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Second*time.Duration(expiry))
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Second*time.Duration(JWT_EXPIRY_IN_SECONDS))
 	if err != nil {
 		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unable to generate auth token"})
 		return
 	}
+
+	refresh := auth.MakeRefreshToken()
+	refreshExpiry := time.Now().Add(time.Hour * 24 * time.Duration(REFRESH_EXPIRY_IN_DAYS))
+
+	cfg.dbQueries.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{
+		Token: refresh,
+		UserID: uuid.NullUUID{
+			UUID:  user.ID,
+			Valid: true,
+		},
+		ExpiresAt: refreshExpiry,
+	})
 
 	ar := AuthResponse{
 		user.ID,
@@ -129,9 +166,42 @@ func (cfg *apiConfig) APILogin(w http.ResponseWriter, req *http.Request) {
 		user.UpdatedAt,
 		user.Email,
 		token,
+		refresh,
 	}
 
 	responseJSON(w, http.StatusOK, ar)
+
+}
+
+func (cfg *apiConfig) APIRefresh(w http.ResponseWriter, req *http.Request) {
+
+	w.Header().Set("Content-Type", "application/json")
+
+	token, err := cfg.getAccessFromRefreshToken(req)
+	if err != nil {
+		responseJSON(w, http.StatusUnauthorized, ErrorResponse{"unauthorized"})
+		return
+	}
+
+	jwtResp := JWTResponse{
+		Token: token,
+	}
+
+	responseJSON(w, http.StatusOK, jwtResp)
+
+}
+
+func (cfg *apiConfig) APIRevoke(w http.ResponseWriter, req *http.Request) {
+
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		responseJSON(w, http.StatusUnauthorized, ErrorResponse{"unauthorized"})
+		return
+	}
+
+	cfg.dbQueries.RevokeToken(req.Context(), token)
+
+	responseJSON(w, http.StatusNoContent, "")
 
 }
 
