@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wolv89/chirpy/internal/auth"
@@ -23,8 +25,17 @@ type ValidResponse struct {
 }
 
 type BasicAuth struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email            string `json:"email"`
+	Password         string `json:"password"`
+	ExpiresInSeconds int    `json:"expires_in_seconds"`
+}
+
+type AuthResponse struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 }
 
 func responseJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -39,6 +50,24 @@ func responseJSON(w http.ResponseWriter, status int, data interface{}) {
 	}
 
 	w.Write(dat)
+
+}
+
+func (cfg *apiConfig) getUserFromAuth(req *http.Request) (uuid.UUID, error) {
+
+	blank := uuid.UUID{}
+
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		return blank, err
+	}
+
+	userId, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		return blank, err
+	}
+
+	return userId, nil
 
 }
 
@@ -83,7 +112,26 @@ func (cfg *apiConfig) APILogin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	responseJSON(w, http.StatusOK, user)
+	expiry := userLogin.ExpiresInSeconds
+	if expiry <= 0 || expiry > 3600 {
+		expiry = 3600
+	}
+
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Second*time.Duration(expiry))
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unable to generate auth token"})
+		return
+	}
+
+	ar := AuthResponse{
+		user.ID,
+		user.CreatedAt,
+		user.UpdatedAt,
+		user.Email,
+		token,
+	}
+
+	responseJSON(w, http.StatusOK, ar)
 
 }
 
@@ -110,6 +158,13 @@ func (cfg *apiConfig) APICreateChirp(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	userId, err := cfg.getUserFromAuth(req)
+	if err != nil {
+		fmt.Println(err)
+		responseJSON(w, http.StatusUnauthorized, nil)
+		return
+	}
+
 	if len(newChirp.Body) == 0 {
 		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Silent chirp"})
 		return
@@ -121,6 +176,10 @@ func (cfg *apiConfig) APICreateChirp(w http.ResponseWriter, req *http.Request) {
 	}
 
 	newChirp.Body = FilterChirp(newChirp.Body)
+	newChirp.UserID = uuid.NullUUID{
+		UUID:  userId,
+		Valid: true,
+	}
 
 	chirp, err := cfg.dbQueries.CreateChirp(req.Context(), newChirp)
 
