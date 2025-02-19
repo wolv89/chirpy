@@ -53,6 +53,7 @@ func main() {
 	mux.HandleFunc("GET /api/chirps", apiCfg.APIGetAllChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpId}", apiCfg.APIGetChirp)
 	mux.HandleFunc("POST /api/chirps", apiCfg.APICreateChirp)
+	mux.HandleFunc("DELETE /api/chirps/{chirpId}", apiCfg.APIDeleteChirp)
 
 	srv := &http.Server{
 		Handler: mux,

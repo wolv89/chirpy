@@ -313,16 +313,16 @@ func (cfg *apiConfig) APIUpdateUser(w http.ResponseWriter, req *http.Request) {
 	updateUser := BasicAuth{}
 	err := decoder.Decode(&updateUser)
 
-	userId, err := cfg.getUserFromAuth(req)
-	if err != nil {
-		responseJSON(w, http.StatusUnauthorized, nil)
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 
 	if err != nil {
 		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Something went wrong"})
+		return
+	}
+
+	userId, err := cfg.getUserFromAuth(req)
+	if err != nil {
+		responseJSON(w, http.StatusUnauthorized, nil)
 		return
 	}
 
@@ -386,10 +386,52 @@ func (cfg *apiConfig) APIGetChirp(w http.ResponseWriter, req *http.Request) {
 	chirp, err := cfg.dbQueries.GetChirp(req.Context(), uuid)
 
 	if err != nil {
-		responseJSON(w, http.StatusInternalServerError, ErrorResponse{err.Error()})
+		responseJSON(w, http.StatusNotFound, ErrorResponse{err.Error()})
 		return
 	}
 
 	responseJSON(w, http.StatusOK, chirp)
+
+}
+
+func (cfg *apiConfig) APIDeleteChirp(w http.ResponseWriter, req *http.Request) {
+
+	qry := req.PathValue("chirpId")
+
+	if len(qry) == 0 {
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Need a chirp ID!"})
+		return
+	}
+
+	uuid, err := uuid.Parse(qry)
+	if err != nil {
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"That doesn't look like a chirp ID!"})
+		return
+	}
+
+	userId, err := cfg.getUserFromAuth(req)
+	if err != nil {
+		responseJSON(w, http.StatusUnauthorized, nil)
+		return
+	}
+
+	chirp, err := cfg.dbQueries.GetChirp(req.Context(), uuid)
+	if err != nil {
+		responseJSON(w, http.StatusNotFound, ErrorResponse{err.Error()})
+		return
+	}
+
+	if userId != chirp.UserID.UUID {
+		responseJSON(w, http.StatusForbidden, nil)
+		return
+	}
+
+	err = cfg.dbQueries.DeleteChirp(req.Context(), chirp.ID)
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{err.Error()})
+		return
+	}
+
+	responseJSON(w, http.StatusNoContent, nil)
 
 }
