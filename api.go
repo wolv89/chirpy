@@ -305,6 +305,56 @@ func (cfg *apiConfig) APICreateUser(w http.ResponseWriter, req *http.Request) {
 
 }
 
+func (cfg *apiConfig) APIUpdateUser(w http.ResponseWriter, req *http.Request) {
+
+	decoder := json.NewDecoder(req.Body)
+	defer req.Body.Close()
+
+	updateUser := BasicAuth{}
+	err := decoder.Decode(&updateUser)
+
+	userId, err := cfg.getUserFromAuth(req)
+	if err != nil {
+		responseJSON(w, http.StatusUnauthorized, nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Something went wrong"})
+		return
+	}
+
+	if len(updateUser.Email) == 0 || len(updateUser.Password) == 0 {
+		responseJSON(w, http.StatusBadRequest, ErrorResponse{"Must have an email address and password to update"})
+		return
+	}
+
+	password, err := auth.HashPassword(updateUser.Password)
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unusable password"})
+		return
+	}
+
+	updateUserParams := database.UpdateUserParams{
+		ID:             userId,
+		Email:          updateUser.Email,
+		HashedPassword: password,
+	}
+
+	user, err := cfg.dbQueries.UpdateUser(req.Context(), updateUserParams)
+
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Unable to update user: " + err.Error()})
+		return
+	}
+
+	responseJSON(w, http.StatusOK, user)
+
+}
+
 func (cfg *apiConfig) APIGetAllChirps(w http.ResponseWriter, req *http.Request) {
 
 	chirps, err := cfg.dbQueries.GetAllChirps(req.Context())
