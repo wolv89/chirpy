@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/wolv89/chirpy/internal/auth"
 	"github.com/wolv89/chirpy/internal/database"
 )
 
@@ -15,13 +16,19 @@ type WebhookResponse struct {
 
 func (cfg *apiConfig) PolkaWebhook(w http.ResponseWriter, req *http.Request) {
 
+	w.Header().Set("Content-Type", "application/json")
+
+	apikey, err := auth.GetAPIKey(req.Header)
+	if err != nil || apikey != cfg.polkaKey {
+		responseJSON(w, http.StatusUnauthorized, nil)
+		return
+	}
+
 	decoder := json.NewDecoder(req.Body)
 	defer req.Body.Close()
 
 	webhookResp := WebhookResponse{}
-	err := decoder.Decode(&webhookResp)
-
-	w.Header().Set("Content-Type", "application/json")
+	err = decoder.Decode(&webhookResp)
 
 	if err != nil {
 		responseJSON(w, http.StatusInternalServerError, ErrorResponse{"Something went wrong"})

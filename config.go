@@ -9,9 +9,9 @@ import (
 )
 
 type apiConfig struct {
-	fileserverHits      atomic.Int32
-	dbQueries           *database.Queries
-	platform, jwtSecret string
+	fileserverHits                atomic.Int32
+	dbQueries                     *database.Queries
+	platform, jwtSecret, polkaKey string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
