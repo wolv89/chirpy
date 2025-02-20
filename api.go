@@ -41,6 +41,7 @@ type AuthResponse struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 type JWTResponse struct {
@@ -167,6 +168,7 @@ func (cfg *apiConfig) APILogin(w http.ResponseWriter, req *http.Request) {
 		user.Email,
 		token,
 		refresh,
+		user.IsChirpyRed,
 	}
 
 	responseJSON(w, http.StatusOK, ar)
