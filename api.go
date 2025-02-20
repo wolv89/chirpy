@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -359,10 +360,30 @@ func (cfg *apiConfig) APIUpdateUser(w http.ResponseWriter, req *http.Request) {
 
 func (cfg *apiConfig) APIGetAllChirps(w http.ResponseWriter, req *http.Request) {
 
-	chirps, err := cfg.dbQueries.GetAllChirps(req.Context())
+	get_author_id := req.URL.Query().Get("author_id")
+	author_id, err := uuid.Parse(get_author_id)
+
+	get_sort := req.URL.Query().Get("sort")
+	if get_sort != "desc" {
+		get_sort = "asc"
+	}
+
+	var (
+		chirps []database.Chirp
+	)
 
 	if err != nil {
-		responseJSON(w, http.StatusInternalServerError, ErrorResponse{err.Error()})
+		chirps, err = cfg.dbQueries.GetAllChirps(req.Context())
+	} else {
+		chirps, err = cfg.dbQueries.GetChirpsByAuthor(req.Context(), uuid.NullUUID{author_id, true})
+	}
+
+	if get_sort == "desc" {
+		slices.Reverse(chirps)
+	}
+
+	if err != nil {
+		responseJSON(w, http.StatusNotFound, ErrorResponse{err.Error()})
 		return
 	}
 
